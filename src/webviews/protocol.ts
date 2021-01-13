@@ -121,20 +121,25 @@ export interface RebaseEntry {
 	readonly ref: string;
 	readonly message: string;
 	readonly index: number;
+	readonly done?: boolean;
 }
 
 export interface RebaseDidChangeNotificationParams {
-	entries: RebaseEntry[];
+	state: RebaseState;
 }
 export const RebaseDidChangeNotificationType = new IpcNotificationType<RebaseDidChangeNotificationParams>(
 	'rebase/change',
 );
 
-export const RebaseDidStartCommandType = new IpcCommandType('rebase/start');
-
 export const RebaseDidAbortCommandType = new IpcCommandType('rebase/abort');
 
+export const RebaseDidContinueCommandType = new IpcCommandType('rebase/continue');
+
 export const RebaseDidDisableCommandType = new IpcCommandType('rebase/disable');
+
+export const RebaseDidStartCommandType = new IpcCommandType('rebase/start');
+
+export const RebaseDidSwitchCommandType = new IpcCommandType('rebase/switch');
 
 export interface RebaseDidChangeEntryCommandParams {
 	ref: string;
@@ -151,7 +156,7 @@ export interface RebaseDidMoveEntryCommandParams {
 }
 export const RebaseDidMoveEntryCommandType = new IpcCommandType<RebaseDidMoveEntryCommandParams>('rebase/move/entry');
 
-export interface RebaseState extends RebaseDidChangeNotificationParams {
+export interface RebaseState {
 	branch: string;
 	onto: string;
 
@@ -160,5 +165,16 @@ export interface RebaseState extends RebaseDidChangeNotificationParams {
 	commits: Commit[];
 	commands: {
 		commit: string;
+	};
+
+	rebasing?: {
+		current: string | undefined;
+		incoming: string;
+		conflicts: number;
+		step: {
+			commit: string;
+			number: number;
+			total: number;
+		};
 	};
 }

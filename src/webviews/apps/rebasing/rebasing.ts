@@ -7,10 +7,8 @@ import {
 	RebaseDidAbortCommandType,
 	RebaseDidChangeEntryCommandType,
 	RebaseDidChangeNotificationType,
-	RebaseDidDisableCommandType,
+	RebaseDidContinueCommandType,
 	RebaseDidMoveEntryCommandType,
-	RebaseDidStartCommandType,
-	RebaseDidSwitchCommandType,
 	RebaseEntry,
 	RebaseEntryAction,
 	RebaseState,
@@ -35,7 +33,7 @@ const rebaseActionsMap = new Map<string, RebaseEntryAction>([
 	['D', 'drop'],
 ]);
 
-class RebaseEditor extends App<RebaseState> {
+class RebaseEditor extends App<Required<RebaseState>> {
 	// eslint-disable-next-line no-template-curly-in-string
 	private readonly commitTokenRegex = new RegExp(encodeURIComponent('${commit}'));
 
@@ -61,7 +59,7 @@ class RebaseEditor extends App<RebaseState> {
 		Sortable.create($container, {
 			animation: 150,
 			handle: '.entry-handle',
-			filter: '.entry--base',
+			filter: '.entry--stopped-at .entry--done .entry--base',
 			dragClass: 'entry--drag',
 			ghostClass: 'entry--dragging',
 			onChange: () => {
@@ -82,7 +80,10 @@ class RebaseEditor extends App<RebaseState> {
 
 					$entry.classList.toggle(
 						'entry--squash-to',
-						squashToHere && !$entry.classList.contains('entry--base'),
+						squashToHere &&
+							!$entry.classList.contains('entry--stopped-at') &&
+							!$entry.classList.contains('entry--done') &&
+							!$entry.classList.contains('entry--base'),
 					);
 				}
 			},
@@ -98,11 +99,14 @@ class RebaseEditor extends App<RebaseState> {
 					document.querySelectorAll<HTMLLIElement>(`li[data-ref="${ref}"]`)[0]?.focus();
 				}
 			},
-			onMove: e => !e.related.classList.contains('entry--base'),
+			onMove: e =>
+				!e.related.classList.contains('entry--stopped-at') &&
+				!e.related.classList.contains('entry--done') &&
+				!e.related.classList.contains('entry--base'),
 		});
 
 		if (window.navigator.platform.startsWith('Mac')) {
-			let $shortcut = document.querySelector<HTMLSpanElement>('[data-action="start"] .shortcut')!;
+			let $shortcut = document.querySelector<HTMLSpanElement>('[data-action="continue"] .shortcut')!;
 			$shortcut.textContent = 'Cmd+Enter';
 
 			$shortcut = document.querySelector<HTMLSpanElement>('[data-action="abort"] .shortcut')!;
@@ -116,7 +120,7 @@ class RebaseEditor extends App<RebaseState> {
 						e.preventDefault();
 						e.stopPropagation();
 
-						this.onStartClicked();
+						this.onContinueClicked();
 					} else if (e.key === 'a') {
 						e.preventDefault();
 						e.stopPropagation();
@@ -125,10 +129,8 @@ class RebaseEditor extends App<RebaseState> {
 					}
 				}
 			}),
-			DOM.on('[data-action="start"]', 'click', () => this.onStartClicked()),
+			DOM.on('[data-action="continue"]', 'click', () => this.onContinueClicked()),
 			DOM.on('[data-action="abort"]', 'click', () => this.onAbortClicked()),
-			DOM.on('[data-action="disable"]', 'click', () => this.onDisableClicked()),
-			DOM.on('[data-action="switch"]', 'click', () => this.onSwitchClicked()),
 			DOM.on('li[data-ref]', 'keydown', function (this: Element, e: KeyboardEvent) {
 				if ((e.target as HTMLElement).matches('select[data-ref]')) {
 					if (e.key === 'Escape') {
@@ -166,8 +168,8 @@ class RebaseEditor extends App<RebaseState> {
 
 							let index = me.getEntryIndex(ref) + (e.key === 'ArrowDown' ? 1 : -1);
 							if (index < 0) {
-								index = me.state.entries.length - 1;
-							} else if (index === me.state.entries.length) {
+								index = me.state.entries.filter(e => !e.done).length;
+							} else if (index === me.state.entries.filter(e => !e.done).length + 1) {
 								index = 0;
 							}
 
@@ -177,7 +179,7 @@ class RebaseEditor extends App<RebaseState> {
 					}
 				} else if (!e.metaKey && !e.altKey && !e.ctrlKey) {
 					const action = rebaseActionsMap.get(e.key);
-					if (action !== undefined) {
+					if (action != null) {
 						e.stopPropagation();
 
 						const $select = (this as HTMLLIElement).querySelectorAll<HTMLSelectElement>(
@@ -199,7 +201,7 @@ class RebaseEditor extends App<RebaseState> {
 	}
 
 	private getEntry(ref: string) {
-		return this.state?.entries.find(e => e.ref === ref);
+		return this.state?.entries.find(e => e.ref === ref) ?? this.state?.entries.find(e => e.ref === ref);
 	}
 
 	private getEntryIndex(ref: string) {
@@ -233,8 +235,8 @@ class RebaseEditor extends App<RebaseState> {
 		this.sendCommand(RebaseDidAbortCommandType, {});
 	}
 
-	private onDisableClicked() {
-		this.sendCommand(RebaseDidDisableCommandType, {});
+	private onContinueClicked() {
+		this.sendCommand(RebaseDidContinueCommandType, {});
 	}
 
 	private onSelectChanged($el: HTMLSelectElement) {
@@ -242,14 +244,6 @@ class RebaseEditor extends App<RebaseState> {
 		if (ref) {
 			this.setEntryAction(ref, $el.options[$el.selectedIndex].value as RebaseEntryAction);
 		}
-	}
-
-	private onStartClicked() {
-		this.sendCommand(RebaseDidStartCommandType, {});
-	}
-
-	private onSwitchClicked() {
-		this.sendCommand(RebaseDidSwitchCommandType, {});
 	}
 
 	protected onMessageReceived(e: MessageEvent) {
@@ -268,36 +262,72 @@ class RebaseEditor extends App<RebaseState> {
 		}
 	}
 
-	private refresh(state: RebaseState) {
+	private refresh(state: Required<RebaseState>) {
 		const focusRef = document.activeElement?.closest<HTMLLIElement>('li[data-ref]')?.dataset.ref;
 		let focusSelect = false;
 		if (document.activeElement?.matches('select[data-ref]')) {
 			focusSelect = true;
 		}
 
+		const $continue = document.querySelector<HTMLButtonElement>('[data-action="continue"]')!;
+		if (state.rebasing.conflicts > 0) {
+			$continue.disabled = true;
+			$continue.title = 'Resolve conflicts to continue rebasing';
+		} else {
+			$continue.disabled = false;
+			$continue.title = '';
+		}
+
 		const $subhead = document.getElementById('subhead')! as HTMLHeadingElement;
 		$subhead.innerHTML = '';
 
 		let $el: HTMLElement | Text = document.createElement('span');
-		$el.textContent = state.branch;
-		$el.classList.add('icon--branch', 'mr-1');
+		$el.textContent = state.rebasing.incoming;
+		$el.classList.add('icon--branch');
 		$subhead.appendChild($el);
 
-		$el = document.createTextNode(
-			`Rebasing ${state.entries.length} commit${state.entries.length !== 1 ? 's' : ''}${
-				state.onto ? ' onto' : ''
-			}`,
-		);
-		$subhead.appendChild($el);
+		if (state.rebasing.current) {
+			$el = document.createTextNode(' onto ');
+			$subhead.appendChild($el);
 
-		if (state.onto) {
 			$el = document.createElement('span');
-			$el.textContent = state.onto;
-			$el.classList.add('icon--commit');
+			$el.textContent = state.rebasing.current;
+			$el.classList.add('icon--branch');
 			$subhead.appendChild($el);
 		}
 
+		const $subheadStatus = document.getElementById('subhead-status')! as HTMLHeadingElement;
+		$subheadStatus.classList.add('icon--paused');
+		$subheadStatus.innerHTML = '';
+
+		$el = document.createTextNode(
+			`Rebasing (${state.rebasing.step.number}/${state.rebasing.step.total}) stopped at`,
+		);
+		$subheadStatus.appendChild($el);
+
+		$el = document.createElement('span');
+		$el.textContent = state.rebasing.step.commit.substr(0, 7);
+		$el.classList.add('icon--commit');
+		$subheadStatus.appendChild($el);
+
+		const $actionsStatus = document.getElementById('actions-status')! as HTMLHeadingElement;
+		$actionsStatus.innerHTML = '';
+
+		if (state.rebasing.conflicts > 0) {
+			$actionsStatus.classList.add('icon--warning');
+
+			$el = document.createTextNode(
+				` Resolve ${
+					state.rebasing.conflicts === 1 ? '1 conflict' : `${state.rebasing.conflicts} conflicts`
+				} to continue rebasing`,
+			);
+			$actionsStatus.appendChild($el);
+		} else {
+			$actionsStatus.classList.remove('icon--warning');
+		}
+
 		const $container = document.getElementById('entries')!;
+		$container.classList.toggle('has-conflicts', state.rebasing.conflicts > 0);
 		$container.innerHTML = '';
 
 		if (state.entries.length === 0) {
@@ -311,7 +341,7 @@ class RebaseEditor extends App<RebaseState> {
 			const $entry = document.createElement('li');
 
 			const $el = document.createElement('h3');
-			$el.textContent = 'No commits to rebase';
+			$el.innerText = 'No commits to rebase';
 
 			$entry.appendChild($el);
 			$container.appendChild($entry);
@@ -335,7 +365,7 @@ class RebaseEditor extends App<RebaseState> {
 			}
 
 			let $el: HTMLLIElement;
-			[$el, tabIndex] = this.createEntry(entry, state, ++tabIndex, squashToHere);
+			[$el, tabIndex] = this.createEntry(entry, state, ++tabIndex, squashToHere, entry.done ?? false);
 			$container.appendChild($el);
 		}
 
@@ -352,6 +382,7 @@ class RebaseEditor extends App<RebaseState> {
 					state,
 					++tabIndex,
 					false,
+					false,
 				);
 				$container.appendChild($el);
 				$container.classList.add('entries--base');
@@ -360,7 +391,7 @@ class RebaseEditor extends App<RebaseState> {
 
 		document
 			.querySelectorAll<HTMLLIElement>(
-				`${focusSelect ? 'select' : 'li'}[data-ref="${focusRef ?? state.entries[0].ref}"]`,
+				`${focusSelect ? 'select' : 'li'}[data-ref="${focusRef ?? state.rebasing.step.commit}"]`,
 			)[0]
 			?.focus();
 
@@ -369,48 +400,108 @@ class RebaseEditor extends App<RebaseState> {
 
 	private createEntry(
 		entry: RebaseEntry,
-		state: RebaseState,
+		state: Required<RebaseState>,
 		tabIndex: number,
 		squashToHere: boolean,
+		done: boolean,
 	): [HTMLLIElement, number] {
+		const stoppedAt = state.rebasing.step.commit.startsWith(entry.ref);
+
 		const $entry = document.createElement('li');
 		$entry.classList.add('entry', `entry--${entry.action ?? 'base'}`);
 		$entry.classList.toggle('entry--squash-to', squashToHere);
-		$entry.dataset.ref = entry.ref;
+		$entry.classList.toggle('entry--done', done && !stoppedAt);
+		$entry.classList.toggle('entry--stopped-at', stoppedAt);
 
 		if (entry.action != null) {
-			$entry.tabIndex = tabIndex++;
+			if (!done) {
+				$entry.dataset.ref = entry.ref;
+				$entry.tabIndex = tabIndex++;
 
-			const $dragHandle = document.createElement('span');
-			$dragHandle.classList.add('entry-handle');
-			$entry.appendChild($dragHandle);
+				const $dragHandle = document.createElement('span');
+				$dragHandle.classList.add('entry-handle');
+				$entry.appendChild($dragHandle);
 
-			const $selectContainer = document.createElement('div');
-			$selectContainer.classList.add('entry-action', 'select-container');
-			$entry.appendChild($selectContainer);
+				const $selectContainer = document.createElement('div');
+				$selectContainer.classList.add('entry-action', 'select-container');
+				$entry.appendChild($selectContainer);
 
-			const $select = document.createElement('select');
-			$select.dataset.ref = entry.ref;
-			$select.name = 'action';
-			$select.tabIndex = tabIndex++;
+				const $select = document.createElement('select');
+				$select.dataset.ref = entry.ref;
+				$select.name = 'action';
+				$select.tabIndex = tabIndex++;
 
-			for (const action of rebaseActions) {
-				const $option = document.createElement('option');
-				$option.value = action;
-				$option.text = action;
+				for (const action of rebaseActions) {
+					const $option = document.createElement('option');
+					$option.value = action;
+					$option.text = action;
 
-				if (entry.action === action) {
-					$option.selected = true;
+					if (entry.action === action) {
+						$option.selected = true;
+					}
+
+					$select.appendChild($option);
+				}
+				$selectContainer.appendChild($select);
+			} else {
+				if (stoppedAt) {
+					$entry.dataset.ref = entry.ref;
+					$entry.tabIndex = tabIndex++;
+
+					const $indicator = document.createElement('span');
+					$indicator.classList.add('entry-indicator');
+					$entry.appendChild($indicator);
 				}
 
+				const $selectContainer = document.createElement('div');
+				$selectContainer.classList.add('entry-action', 'select-container');
+				$entry.appendChild($selectContainer);
+
+				const $select = document.createElement('select');
+				$select.dataset.ref = entry.ref;
+				$select.name = 'action';
+				$select.disabled = true;
+
+				const $option = document.createElement('option');
+				$option.value = entry.action;
+				if (done) {
+					if (stoppedAt) {
+						$option.text = `editing (${entry.action})`;
+					} else {
+						switch (entry.action) {
+							case 'pick':
+							case 'reword':
+							case 'edit':
+							case 'squash':
+								$option.text = `${entry.action}ed`;
+								break;
+							case 'break':
+								$option.text = 'picked';
+								break;
+							case 'drop':
+								$option.text = 'dropped';
+								break;
+							case 'fixup':
+								$option.text = 'squashed';
+								break;
+							default:
+								$option.text = entry.action;
+								break;
+						}
+					}
+				} else {
+					$option.text = entry.action;
+				}
+				$option.selected = true;
 				$select.appendChild($option);
+
+				$selectContainer.appendChild($select);
 			}
-			$selectContainer.appendChild($select);
 		}
 
 		const $message = document.createElement('span');
 		$message.classList.add('entry-message');
-		$message.textContent = entry.message ?? '';
+		$message.innerText = entry.message ?? '';
 		$entry.appendChild($message);
 
 		const commit = state.commits.find(c => c.ref.startsWith(entry.ref));
@@ -428,7 +519,7 @@ class RebaseEditor extends App<RebaseState> {
 
 				const $author = document.createElement('span');
 				$author.classList.add('entry-author');
-				$author.textContent = commit.author;
+				$author.innerText = commit.author;
 				$entry.appendChild($author);
 			}
 
@@ -436,7 +527,7 @@ class RebaseEditor extends App<RebaseState> {
 				const $date = document.createElement('span');
 				$date.title = commit.date ?? '';
 				$date.classList.add('entry-date');
-				$date.textContent = commit.dateFromNow;
+				$date.innerText = commit.dateFromNow;
 				$entry.appendChild($date);
 			}
 		}
@@ -445,7 +536,7 @@ class RebaseEditor extends App<RebaseState> {
 		$ref.classList.add('entry-ref', 'icon--commit');
 		// $ref.dataset.prev = prev ? `${prev} \u2190 ` : '';
 		$ref.href = commit?.ref ? state.commands.commit.replace(this.commitTokenRegex, commit.ref) : '#';
-		$ref.textContent = entry.ref.substr(0, 7);
+		$ref.innerText = entry.ref.substr(0, 7);
 		$ref.tabIndex = tabIndex++;
 		$entry.appendChild($ref);
 
