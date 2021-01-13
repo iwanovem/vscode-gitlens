@@ -59,7 +59,7 @@ class RebaseEditor extends App<Required<RebaseState>> {
 		Sortable.create($container, {
 			animation: 150,
 			handle: '.entry-handle',
-			filter: '.entry--stopped-at .entry--done .entry--base',
+			filter: '.entry--paused-at .entry--done .entry--base',
 			dragClass: 'entry--drag',
 			ghostClass: 'entry--dragging',
 			onChange: () => {
@@ -81,7 +81,7 @@ class RebaseEditor extends App<Required<RebaseState>> {
 					$entry.classList.toggle(
 						'entry--squash-to',
 						squashToHere &&
-							!$entry.classList.contains('entry--stopped-at') &&
+							!$entry.classList.contains('entry--paused-at') &&
 							!$entry.classList.contains('entry--done') &&
 							!$entry.classList.contains('entry--base'),
 					);
@@ -100,7 +100,7 @@ class RebaseEditor extends App<Required<RebaseState>> {
 				}
 			},
 			onMove: e =>
-				!e.related.classList.contains('entry--stopped-at') &&
+				!e.related.classList.contains('entry--paused-at') &&
 				!e.related.classList.contains('entry--done') &&
 				!e.related.classList.contains('entry--base'),
 		});
@@ -301,7 +301,7 @@ class RebaseEditor extends App<Required<RebaseState>> {
 		$subheadStatus.innerHTML = '';
 
 		$el = document.createTextNode(
-			`Rebasing (${state.rebasing.step.number}/${state.rebasing.step.total}) stopped at`,
+			`Rebasing (${state.rebasing.step.number}/${state.rebasing.step.total}) paused at`,
 		);
 		$subheadStatus.appendChild($el);
 
@@ -405,13 +405,13 @@ class RebaseEditor extends App<Required<RebaseState>> {
 		squashToHere: boolean,
 		done: boolean,
 	): [HTMLLIElement, number] {
-		const stoppedAt = state.rebasing.step.commit.startsWith(entry.ref);
+		const pausedAt = state.rebasing.step.commit.startsWith(entry.ref);
 
 		const $entry = document.createElement('li');
 		$entry.classList.add('entry', `entry--${entry.action ?? 'base'}`);
 		$entry.classList.toggle('entry--squash-to', squashToHere);
-		$entry.classList.toggle('entry--done', done && !stoppedAt);
-		$entry.classList.toggle('entry--stopped-at', stoppedAt);
+		$entry.classList.toggle('entry--done', done && !pausedAt);
+		$entry.classList.toggle('entry--paused-at', pausedAt);
 
 		if (entry.action != null) {
 			if (!done) {
@@ -444,7 +444,7 @@ class RebaseEditor extends App<Required<RebaseState>> {
 				}
 				$selectContainer.appendChild($select);
 			} else {
-				if (stoppedAt) {
+				if (pausedAt) {
 					$entry.dataset.ref = entry.ref;
 					$entry.tabIndex = tabIndex++;
 
@@ -465,7 +465,7 @@ class RebaseEditor extends App<Required<RebaseState>> {
 				const $option = document.createElement('option');
 				$option.value = entry.action;
 				if (done) {
-					if (stoppedAt) {
+					if (pausedAt) {
 						$option.text = `editing (${entry.action})`;
 					} else {
 						switch (entry.action) {

@@ -111,7 +111,7 @@ export class RebaseStatusNode extends ViewNode<ViewsWithCommits> {
 				this.rebaseStatus.incoming != null ? GitReference.toString(this.rebaseStatus.incoming) : ''
 			}onto ${GitReference.toString(this.rebaseStatus.current)}`}\n\nStep ${this.rebaseStatus.step.number} of ${
 				this.rebaseStatus.step.total
-			}\\\nStopped at ${GitReference.toString(this.rebaseStatus.step.commit, { icon: true })}${
+			}\\\nPaused at ${GitReference.toString(this.rebaseStatus.step.commit, { icon: true })}${
 				this.status?.hasConflicts
 					? `\n\n${Strings.pluralize('conflicted file', this.status.conflicts.length)}`
 					: ''
@@ -193,7 +193,7 @@ export class RebaseCommitNode extends ViewRefNode<ViewsWithCommits, GitRevisionR
 	}
 
 	getTreeItem(): TreeItem {
-		const item = new TreeItem(`Stopped at commit ${this.commit.shortSha}`, TreeItemCollapsibleState.Collapsed);
+		const item = new TreeItem(`Paused at commit ${this.commit.shortSha}`, TreeItemCollapsibleState.Collapsed);
 
 		// item.contextValue = ContextValues.RebaseCommit;
 
