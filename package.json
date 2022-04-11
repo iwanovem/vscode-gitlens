@@ -9009,7 +9009,7 @@
 		"chroma-js": "2.1.0",
 		"dayjs": "1.10.3",
 		"iconv-lite": "0.6.2",
-		"lodash-es": "4.17.20",
+		"lodash-es": "4.17.21",
 		"sortablejs": "1.13.0",
 		"vscode-codicons": "0.0.13",
 		"vsls": "1.0.3015"
